@@ -1,0 +1,182 @@
+#!/bin/bash
+
+############################
+# helper functions
+############################
+
+die() {
+    echo $@ >&2
+    exit 1;
+}
+
+is_btrfs_subvolume() {
+    local dir=$1
+    [ "$(stat -f --format="%T" "$dir")" == "btrfs" ] || return 1
+    inode="$(stat --format="%i" "$dir")"
+    case "$inode" in
+        2|256)
+            return 0;;
+        *)
+            return 1;;
+    esac
+}
+
+get_btrfs_subvolname() {
+    btrfs subvolume show $1 | head -n1
+}
+
+is_btrfs_subvol_readonly() {
+    [[ "$(btrfs property get $1 ro)" = "ro=true" ]]
+}
+
+makedir() {
+    [[ ! -d $1 ]] && run_cmd "mkdir -p $1"
+}
+
+run_cmd() {
+    if [[ $dryrun -eq 0 ]] ; then
+        echo $@
+        eval $@
+    else
+        echo $@
+    fi
+}
+
+############################
+# parse options
+############################
+
+LANG=C
+snapshotdir_default="snapshots"
+snapshotid_default=""
+snapshotexpire_default=7
+
+
+dryrun=0
+snapshotdir=$snapshotdir_default
+snapshotexpire=$snapshotexpire_default
+prefix=$snapshotid_default
+clean=0
+debug=0
+
+usage() {
+    cat <<EOF
+Usage: $0 [OPTION] SUBVOLUME [SUBVOLUME]...
+  $(basename $0) creates and keeps the latest NUM snapshots of SUBVOLUME
+  destination is: DIR/SUBVOLUME/PREFIXDATE
+
+ Options:
+ -n, --dry-run          perform a trial run with no changes made
+ -d, --dirname=DIRNAME  default name is ${snapshotdir_default}
+ -p, --prefix=PREFIX    default is none
+ -e, --expire=NUM       number of snapshots to keep, default is ${snapshotexpire_default}
+ -c, --clean            do not perform a snapshot - run the expire part only
+     --debug            addition debug print
+ -h, --help             show this help
+EOF
+    exit ${1:-0}
+}
+
+opts=$(getopt -o nd:p:e:ch --long dry-run,dirname:,prefix:,expire:,clean,debug,help -n $0 -- "$@")
+
+[[ $? -ne 0 ]] && usage 1
+
+eval set -- "$opts"
+while : ; do
+    case "$1" in
+        -n|--dry-run)
+            dryrun=1
+            shift
+            ;;
+        -d|--dirname)
+            snapshotdir=$2
+            shift 2
+            ;;
+        -p|--prefix)
+            prefix=$2
+            shift 2
+            ;;
+        -e|--expire)
+            snapshotexpire=$2
+            shift 2
+            ;;
+        -c|--clean)
+            clean=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            shift
+            ;;
+        --debug)
+            debug=1
+            shift
+            ;;
+        --) shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+[[ $# -lt 1 ]] && usage
+
+[[ $EUID -ne 0 ]] && die "This script must run as root."
+
+if [[ $dryrun -eq 1 ]] ; then
+    echo "Doing a dry run..." >&2
+fi
+
+#allows patterns which match no files to expand to a null string,
+#rather than themselves.
+shopt -s nullglob
+
+# extent globs
+shopt -s extglob
+
+for subvolume in $@ ; do
+    datestring=$(date "+%Y%m%d_%H%M%S")
+    is_btrfs_subvolume $subvolume || die "The specified source ${subvolume} is not a btrfs subvolume"
+    subvolname="$(get_btrfs_subvolname $subvolume)"
+
+    if [[ $clean -eq 0 ]]; then
+        ############################
+        # create
+        ############################
+        makedir "$snapshotdir/$subvolname"
+
+        run_cmd "btrfs subvolume snapshot -r $subvolume ${snapshotdir}/${subvolname}/${prefix}${datestring}"
+
+        exit_value=$?
+        if [[ $exit_value -ne 0 ]] ; then
+            die "ERROR: btrfs subvolume snapshot exit with value $exit_value"
+        fi
+    fi
+
+    ############################
+    # cleanup
+    ############################
+
+    existing_snapshots=($(echo $snapshotdir/$subvolname/${prefix}+([[:digit:]])_+([[:digit:]])))
+    if [[ $debug -eq 1 ]] ; then
+        echo "Snapshots found:" >&2
+        ( IFS=$'\n' ; echo "${existing_snapshots[*]}" >&2 )
+    fi
+    expired_snaphots=$( IFS=$'\n' ; sort <<<"${existing_snapshots[*]}" | head -n "-$snapshotexpire" )
+    if [[ $debug -eq 1 ]] ; then
+        echo "Snapshots expired:" >&2
+        echo "$expired_snaphots"  >&2
+    fi
+
+    for s in $expired_snaphots ; do
+        if is_btrfs_subvol_readonly $s ; then
+            run_cmd "btrfs subvolume delete $s" >&2
+        else
+            echo "ERROR: $s is not a readonly snapshot - refused to delete it." >&2
+        fi
+    done
+
+done
+
