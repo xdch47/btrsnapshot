@@ -3,7 +3,7 @@ PURPOSE
 
 **btrsnapshot** creates and keeps the latest `NUM` snapshots of `SUBVOLUME` within a btrfs filesystem.
 
-The snapshot will be located at: <DIRNAME>/<SUBVOLUME>/<PREFIX><DATE>
+The snapshot will be located at: \<DIRNAME\>/\<SUBVOLUME\>/\<PREFIX\>\<DATE\>
 
 Options:
 ```
