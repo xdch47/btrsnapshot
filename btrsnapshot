@@ -58,26 +58,28 @@ snapshotexpire=$snapshotexpire_default
 prefix=$snapshotid_default
 clean=0
 debug=0
+version=0
 
 usage() {
     cat <<EOF
 Usage: $0 [OPTION] SUBVOLUME [SUBVOLUME]...
-  $(basename $0) creates and keeps the latest NUM snapshots of SUBVOLUME
-  destination is: DIR/SUBVOLUME/PREFIXDATE
+$(basename $0) creates and keeps the latest NUM snapshots of SUBVOLUME within a btrfs filesystem.
+The snapshot will be located at: <DIRNAME>/<SUBVOLUME>/<PREFIX><DATE>
 
- Options:
- -n, --dry-run          perform a trial run with no changes made
- -d, --dirname=DIRNAME  default name is ${snapshotdir_default}
- -p, --prefix=PREFIX    default is none
- -e, --expire=NUM       number of snapshots to keep, default is ${snapshotexpire_default}
- -c, --clean            do not perform a snapshot - run the expire part only
-     --debug            addition debug print
- -h, --help             show this help
+Options:
+  -n, --dry-run          perform a trial run with no changes made
+  -d, --dirname=DIRNAME  default name is ${snapshotdir_default}
+  -p, --prefix=PREFIX    default is none
+  -e, --expire=NUM       number of snapshots to keep, default is ${snapshotexpire_default}
+  -c, --clean            do not perform a snapshot - run the expire part only
+      --debug            addition debug print
+  -h, --help             show this help
+      --version          show verison number
 EOF
     exit ${1:-0}
 }
 
-opts=$(getopt -o nd:p:e:ch --long dry-run,dirname:,prefix:,expire:,clean,debug,help -n $0 -- "$@")
+opts=$(getopt -o nd:p:e:ch --long dry-run,dirname:,prefix:,expire:,clean,debug,help,version -n $0 -- "$@")
 
 [[ $? -ne 0 ]] && usage 1
 
@@ -111,6 +113,10 @@ while : ; do
         --debug)
             debug=1
             shift
+            ;;
+        --version)
+            echo "$(basename $0) 0.1"
+            exit 0;
             ;;
         --) shift
             break

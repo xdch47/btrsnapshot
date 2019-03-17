@@ -1,0 +1,24 @@
+[examples]
+
+Adding the following script to \fB/etc/cron.daily\fR provides a daily snapshot of the subvolume \fI/home\fR and \fI/srv/www\fR.
+.br
+The snapshot will be stored at \fI/snapshots\fR. The maximum number existing snapshot matching the \fB<PREFIX><DATE>\fR pattern in this folder is set to 7.
+.PP
+.in +2n
+.EX
+#!/bin/bash
+
+subvolumes=(\fI/home /srv/www\fR)
+prefix="\fIdaily_\fR"
+expire=\fI7\fR
+targetdir="\fI/snapshots\fR"
+
+\fBbtrsnapshot\fR -d "$targetdir" -p "$prefix" -e $expire "${subvolumes[@]}"
+.PP
+And the same as one-liner for \fBcrontab\fR
+.br
+.in +2n
+.EX
+\fBbtrsnapshot\fR --dirname=\fI/snapshots\fR --prefix=\fIdaily_\fR --expire=\fI7\fR \fI/home /srv/www\fR
+
+\" vim: ft=nroff
