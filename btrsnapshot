@@ -5,13 +5,13 @@
 ############################
 
 die() {
-    echo $@ >&2
-    exit 1;
+    echo "$*" >&2
+    exit 1
 }
 
 is_btrfs_subvolume() {
     local dir=$1
-    [ "$(stat -f --format="%T" "$dir")" == "btrfs" ] || return 1
+    [[ "$(stat -f --format="%T" "$dir")" == "btrfs" ]] || return 1
     inode="$(stat --format="%i" "$dir")"
     case "$inode" in
         2|256)
@@ -22,11 +22,11 @@ is_btrfs_subvolume() {
 }
 
 get_btrfs_subvolname() {
-    btrfs subvolume show $1 | head -n1
+    btrfs subvolume show "$1" | head -n1
 }
 
 is_btrfs_subvol_readonly() {
-    [[ "$(btrfs property get $1 ro)" = "ro=true" ]]
+    [[ "$(btrfs property get "$1" ro)" = "ro=true" ]]
 }
 
 makedir() {
@@ -34,11 +34,11 @@ makedir() {
 }
 
 run_cmd() {
-    if [[ $dryrun -eq 0 ]] ; then
-        echo $@
-        eval $@
+    if [[ ${dryrun} -eq 0 ]] ; then
+        echo "$*"
+        eval "$*"
     else
-        echo $@
+        echo "$*"
     fi
 }
 
@@ -53,17 +53,17 @@ snapshotexpire_default=7
 
 
 dryrun=0
-snapshotdir=$snapshotdir_default
-snapshotexpire=$snapshotexpire_default
-prefix=$snapshotid_default
+snapshotdir=${snapshotdir_default}
+snapshotexpire=${snapshotexpire_default}
+prefix=${snapshotid_default}
 clean=0
 debug=0
-version=0
+version="0.2"
 
 usage() {
     cat <<EOF
-Usage: $0 [OPTION] SUBVOLUME [SUBVOLUME]...
-$(basename $0) creates and keeps the latest NUM snapshots of SUBVOLUME within a btrfs filesystem.
+Usage: $1 [OPTION] SUBVOLUME [SUBVOLUME]...
+${1##*/} creates and keeps the latest NUM snapshots of SUBVOLUME within a btrfs filesystem.
 The snapshot will be located at: <DIRNAME>/<SUBVOLUME>/<PREFIX><DATE>
 
 Options:
@@ -76,14 +76,12 @@ Options:
   -h, --help             show this help
       --version          show verison number
 EOF
-    exit ${1:-0}
+    exit "${1:-0}"
 }
 
-opts=$(getopt -o nd:p:e:ch --long dry-run,dirname:,prefix:,expire:,clean,debug,help,version -n $0 -- "$@")
+opts=$(getopt -o nd:p:e:ch --long dry-run,dirname:,prefix:,expire:,clean,debug,help,version -n "$0" -- "$@")
 
-[[ $? -ne 0 ]] && usage 1
-
-eval set -- "$opts"
+eval set -- "${opts}"
 while : ; do
     case "$1" in
         -n|--dry-run)
@@ -107,7 +105,7 @@ while : ; do
             shift
             ;;
         -h|--help)
-            usage
+            usage "$0"
             shift
             ;;
         --debug)
@@ -115,7 +113,7 @@ while : ; do
             shift
             ;;
         --version)
-            echo "$(basename $0) 0.1"
+            echo "${0##*/} ${version}"
             exit 0;
             ;;
         --) shift
@@ -129,9 +127,9 @@ done
 
 [[ $# -lt 1 ]] && usage
 
-[[ $EUID -ne 0 ]] && die "This script must run as root."
+[[ ${EUID} -ne 0 ]] && die "This script must run as root."
 
-if [[ $dryrun -eq 1 ]] ; then
+if [[ ${dryrun} -eq 1 ]] ; then
     echo "Doing a dry run..." >&2
 fi
 
@@ -142,22 +140,22 @@ shopt -s nullglob
 # extent globs
 shopt -s extglob
 
-for subvolume in $@ ; do
+for subvolume in "$@" ; do
     datestring=$(date "+%Y%m%d_%H%M%S")
-    is_btrfs_subvolume $subvolume || die "The specified source ${subvolume} is not a btrfs subvolume"
-    subvolname="$(get_btrfs_subvolname $subvolume)"
+    is_btrfs_subvolume "${subvolume}" || die "The specified source ${subvolume} is not a btrfs subvolume"
+    subvolname="$(get_btrfs_subvolname "${subvolume}")"
 
-    if [[ $clean -eq 0 ]]; then
+    if [[ ${clean} -eq 0 ]]; then
         ############################
         # create
         ############################
-        makedir "$snapshotdir/$subvolname"
+        makedir "${snapshotdir}/${subvolname}"
 
-        run_cmd "btrfs subvolume snapshot -r $subvolume ${snapshotdir}/${subvolname}/${prefix}${datestring}"
+        run_cmd "btrfs subvolume snapshot -r ${subvolume} ${snapshotdir}/${subvolname}/${prefix}${datestring}"
 
         exit_value=$?
-        if [[ $exit_value -ne 0 ]] ; then
-            die "ERROR: btrfs subvolume snapshot exit with value $exit_value"
+        if [[ ${exit_value} -ne 0 ]] ; then
+            die "ERROR: btrfs subvolume snapshot exit with value ${exit_value}"
         fi
     fi
 
@@ -165,24 +163,22 @@ for subvolume in $@ ; do
     # cleanup
     ############################
 
-    existing_snapshots=($(echo $snapshotdir/$subvolname/${prefix}+([[:digit:]])_+([[:digit:]])))
-    if [[ $debug -eq 1 ]] ; then
+    existing_snapshots=( "${snapshotdir}/${subvolname}/${prefix}"+([[:digit:]])_+([[:digit:]]) )
+    if (( debug )) ; then
         echo "Snapshots found:" >&2
-        ( IFS=$'\n' ; echo "${existing_snapshots[*]}" >&2 )
+        printf "%s\n" "${existing_snapshots[@]}" >&2
     fi
-    expired_snaphots=$( IFS=$'\n' ; sort <<<"${existing_snapshots[*]}" | head -n "-$snapshotexpire" )
-    if [[ $debug -eq 1 ]] ; then
+    readarray -t expired_snaphots < <(printf "%s\n" "${existing_snapshots[@]}" | sort | head -n "-${snapshotexpire}")
+    if (( debug )) ; then
         echo "Snapshots expired:" >&2
-        echo "$expired_snaphots"  >&2
+        printf "%s\n" "${expired_snaphots[@]}" >&2
     fi
 
-    for s in $expired_snaphots ; do
-        if is_btrfs_subvol_readonly $s ; then
-            run_cmd "btrfs subvolume delete $s" >&2
+    for s in "${expired_snaphots[@]}" ; do
+        if is_btrfs_subvol_readonly "${s}" ; then
+            run_cmd "btrfs subvolume delete ${s}" >&2
         else
-            echo "ERROR: $s is not a readonly snapshot - refused to delete it." >&2
+            echo "ERROR: ${s} is not a readonly snapshot - refused to delete it." >&2
         fi
     done
-
 done
-
