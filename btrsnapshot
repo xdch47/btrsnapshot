@@ -11,8 +11,10 @@ die() {
 
 is_btrfs_subvolume() {
     local dir=$1
-    [[ "$(stat -f --format="%T" "$dir")" == "btrfs" ]] || return 1
-    inode="$(stat --format="%i" "$dir")"
+    # check if file is on a btrfs file system
+    # use -c / %t instead of --format / %T to work with busybox stat
+    [[ "$(stat -f -c "%t" "$dir")" == "9123683e" ]] || return 1
+    inode="$(stat -c "%i" "$dir")"
     case "$inode" in
         2|256)
             return 0;;
